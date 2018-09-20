@@ -5,3 +5,6 @@ The zip file contains three data sets generated in the analysis. The three data 
 
 For the figures generated in the analysis, please see the fig folder
 
+There are three main findings in our analysis:
+1. People generally write longer sentences as they get older. 2.Based on our corpus, we find if we do not distinguish by age groups,the following things are the main scources of happiness:Friend, Birthday, Game, School, Buy, love, talk, completed(something), movie and family members. 3.As people get older, they focus more on family than other things.Things related to family becomes to their major sources of happinesss.
+
