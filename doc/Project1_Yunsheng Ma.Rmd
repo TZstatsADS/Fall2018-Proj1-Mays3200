@@ -1,0 +1,364 @@
+---
+title: "How people's writing habits and happiness change with age"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+![](C:/Users/maysh/Desktop/picture1.jpg)
+
+\newline
+\newline
+\newline
+
+
+##Part 1.Introduction
+According to American institute of human development, there are four significant life stages in one's life time: Adolescence (Ages 12-20),Early Adulthood (Ages 20-35),Midlife (Ages 35-50) and Mature Adulthood (Ages 50-80). As people become older and move across life stages, they will show different characteristics. In this project, we use a corpus of 100,000 crowd-sourced happy moments and apply natural language processing to find out how people's writing habits and happiness get changed as they move across life stages. The organization of this report is as follows. Part2 explores the distribution of sentence's length for each age group,Part3 explores which terms having high frequecy to appear in people's words about happiness. Part4 use both td-idf and Latent Dirichlet allocation methods to explore what are the differnces in happiness among different age groups.
+
+
+
+\newline
+\newline
+\newline
+
+
+```{r warning = FALSE,include=FALSE, echo = FALSE}
+#Import packages
+library(tidytext)
+library(data.table)
+library(Momocs)
+library(stringi)
+library(lettercase)
+library(rpart)
+library(base)
+library(quanteda)
+library(shiny)
+library(ggplot2)
+library(plotly)
+library(plyr)
+library(stats)
+library(dplyr)
+library(wordcloud2)
+library(topicmodels)
+library(stringr)
+library(tm)
+library(slam)
+library(tidyr)
+library(tidyverse)
+library(DT)
+library(scales)
+library(gridExtra)
+library(shiny)
+library(ngram)
+set.seed(10)
+```
+
+```{r Professor code_clean the data, warning = FALSE, echo=FALSE,include=FALSE}
+#Step 1 - Load the data to be cleaned and processed
+urlfile<-'https://raw.githubusercontent.com/rit-public/HappyDB/master/happydb/data/cleaned_hm.csv'
+hm_data <- read_csv(urlfile)
+#Step2 - Preliminary cleaning of text
+corpus <- VCorpus(VectorSource(hm_data$cleaned_hm))%>%
+  tm_map(content_transformer(tolower))%>%
+  tm_map(removePunctuation)%>%
+  tm_map(removeNumbers)%>%
+  tm_map(removeWords, character(0))%>%
+  tm_map(stripWhitespace)
+#Step 3 - Stemming words and converting tm object to tidy object
+stemmed <- tm_map(corpus, stemDocument) %>%
+  tidy() %>%
+  select(text)
+#Step 4 - Creating tidy format of the dictionary to be used for completing stems
+dict <- tidy(corpus) %>%
+  select(text) %>%
+  unnest_tokens(dictionary, text)
+#Step 5 - Removing stopwords that don't hold any significant information for our data set
+data("stop_words")
+
+word <- c("happy","ago","yesterday","lot","today","months","month",
+                 "happier","happiest","last","week","past","day","time","enjoyed","feel","nice","favorite","event","im","hours","told","weeks","weekend","makes","ive","evening","mturk")
+
+stop_words <- stop_words %>%
+  bind_rows(mutate(tibble(word), lexicon = "updated"))
+#Step 6 - Combining stems and dictionary into the same tibble
+completed <- stemmed %>%
+  mutate(id = row_number()) %>%
+  unnest_tokens(stems, text) %>%
+  bind_cols(dict) %>%
+  anti_join(stop_words, by = c("dictionary" = "word"))
+#Step 7 - Stem completion
+completed <- completed %>%
+  group_by(stems) %>%
+  count(dictionary) %>%
+  mutate(word = dictionary[which.max(n)]) %>%
+  ungroup() %>%
+  select(stems, word) %>%
+  distinct() %>%
+  right_join(completed) %>%
+  select(-stems)
+#Step 8 - Pasting stem completed individual words into their respective happy moments
+completed <- completed %>%
+  group_by(id) %>%
+  summarise(text = str_c(word, collapse = " ")) %>%
+  ungroup()
+#Step 9 - Keeping a track of the happy moments with their own ID
+hm_data <- hm_data %>%
+  mutate(id = row_number()) %>%
+  inner_join(completed)
+
+datatable(hm_data)
+#Step10 - Load the processed text data along with demographic information on contributors
+urlfile<-'https://raw.githubusercontent.com/rit-public/HappyDB/master/happydb/data/demographic.csv'
+demo_data <- read_csv(urlfile)
+#Step 11 - Combine both the data sets and keep the required columns for analysis
+hm_data <- hm_data %>%
+  inner_join(demo_data, by = "wid") %>%
+  select(wid,
+         original_hm,
+         gender, 
+         marital, 
+         parenthood,
+         reflection_period,
+         age, 
+         country, 
+         ground_truth_category, 
+         text) %>%
+  mutate(count = sapply(hm_data$text, wordcount)) %>%
+  filter(gender %in% c("m", "f")) %>%
+  filter(marital %in% c("single", "married")) %>%
+  filter(parenthood %in% c("n", "y")) %>%
+  filter(reflection_period %in% c("24h", "3m")) %>%
+  mutate(reflection_period = fct_recode(reflection_period, 
+                                        months_3 = "3m", hours_24 = "24h"))
+datatable(hm_data)
+#Step 12 - Create a bag of words using the text data
+bag_of_words <-  hm_data %>%
+  unnest_tokens(word, text)
+
+word_count <- bag_of_words %>%
+  count(word, sort = TRUE)
+#Step 13 Write CSV
+write_csv(hm_data, "hm_data.csv")
+write_csv(word_count, "word_count.csv")
+write_csv(bag_of_words, "bag_of_words.csv")
+#Step 14 Import data; these three data sets are generated by professor's code
+hm_data <- read.csv("hm_data.csv", header = TRUE)
+bag_of_words<-read.csv("bag_of_words.csv", header = TRUE)
+word_count<-read.csv("word_count.csv", header = TRUE)
+```
+
+
+\newline
+\newline
+\newline
+
+
+
+##Part 2.Length of sentences
+Let's first focus on the distribution of sentence's length for each age group. As we can see from the box plots below, the median sentence length and upper and lower quartiles increase as people aging. People in the >50 age group have the highest median sentence length compared with other groups. This means when aging, people generally write longer sentences. There is no 
+particular studies about this finding. But based on a [report]()https://www.health.harvard.edu/mind-and-mood/how-memory-and-thinking-ability-change-with-age from Harward university, two reaons might be related to this phenomenon. First, people's brain degenerates as aging, and as a result, people can't think of precisely the word they are looking for. So, they use longer sentence to express themselves since they can't think out some of the "precise" words when writing. Second,the branching of dendrites in people's brain increases when aging, and connections between distant brain areas strengthen. This means people's brain becomes better at seeing the entire forest and worse at seeing the leaves with age.Thus, older people might write a longer sentence since they tend to show the whole picture. 
+```{r Sentence length, warning = FALSE,echo = FALSE}
+#Remove the hm_data$original_hm contanning more than 1 sentence
+hm_data$num_3<-NA
+for (i in 1:length(hm_data$original_hm)){
+hm_data$num_3<-ifelse(length(gregexpr('[[:alnum:] ][.!?]',hm_data$original_hm[i])[[1]]) >3,NA,1)
+}
+hm_data_one<- hm_data[complete.cases(hm_data[, "num_3"]),]
+#Calculate sentence length
+hm_data_one$length<-NA
+for (i in 1:length(hm_data_one$original_hm)){
+       hm_data_one$length[i]<-length(unlist(strsplit(as.character(hm_data_one$original_hm[i]), "\\W+")))
+}
+#Remove outliers in length
+Q0.05<-quantile(hm_data_one$length,probs = (c(0.05,0.95)))[1]
+Q0.95<-quantile(hm_data_one$length,probs = (c(0.05,0.95)))[2]
+hm_data_one$rm_outliers<-NA
+for (i in 1:length(hm_data_one$original_hm)){
+    hm_data_one$rm_outliers[i]<-ifelse(hm_data_one$length[i]>Q0.05 & hm_data_one$length[i]<Q0.95,1,NA)
+}
+hm_data_clean<- hm_data_one[complete.cases(hm_data_one[, "rm_outliers"]), ]
+#generate age groups
+hm_data_age<-hm_data_one
+hm_data_age$age[hm_data_age$age==""] <- NA
+hm_data_age$age[hm_data_age$age=="prefer not to say"]<-NA
+hm_data_age<-na.omit(hm_data_age) #Remove NA and "prefer not to say" in column age
+hm_data_age$agegroups<-NA
+for (i in 1:length(hm_data_age$original_hm)){
+hm_data_age$agegroups[i]<-ifelse(as.numeric(as.character(hm_data_age$age[i])) <20, "<20", ifelse(as.numeric(as.character(hm_data_age$age[i])) <35,"20-35",ifelse(as.numeric(as.character(hm_data_age$age[i]))<50,"35-50","50+")))
+}
+##Draw graphes for length by age_groups
+hm_data_age %>%
+  plot_ly(x = ~agegroups,y = ~length,split = ~agegroups,type = 'box',box = list(visible = T),
+  meanline = list(visible = T)) %>% 
+  layout(xaxis = list(title = "groups"),yaxis = list(title = "sentence length",zeroline = F))
+```
+
+\newline
+\newline
+\newline
+
+##Part 3.What makes people feel happy 
+Second, let's focus on the content of our data set. The wordcloud below is drawn based on the frequency of each term. The bigger the word is, the more frequent it appears in people words. As we can see, the following terms frequently appear in people's words about haapiness:friend,family,played,daughter,son, watched,wife,games. Especially for the word: friend, which is very significant. This means friendship is a great asset for the whole life time. Also, it seems like most of the frequently appearing words can be allocated into two groups: One is family group(e.g. son,daughter and other family memebrs), the other is personal life group(e.g.game,play,bought).
+```{r wordcloud, warning = FALSE,echo = FALSE}
+wordcloud2(word_count)
+```
+
+
+
+\newline
+\newline
+\newline
+
+
+
+##Part 4.What are the differnces in happiness among different age groups
+###1. tf-idf
+Next, let's focus on what are the differences of happiness among different age groups. In this part, we apply [tf-idf](https://en.wikipedia.org/wiki/Tf%E2%80%93idf) for analysis. tf-idf is a numerical statistic that is intended to reflect how important a word is to a document in a collection or corpus.It is the product of two statistics, term frequency(tf) and inverse document frequency(itf). tf measures the frequency of the words appear in a certian document(i.e a certain agegroup).itf measures the frenquency of terms that occur in all the documents(i.e.the words from all agegroups). If a word frequently appear in a age group, but not frequently appear within all agegroups, we will get a higher value of tf-idf. The four graphes below show the results of the tf-idf analysis. The higher the bar is, the more significant that word is to that agegroup. As we can see, for people below 20 years old, things that make them happy are related to the following words: marriage,bros,GPA,passed,ups(may be buy something). A big proportion of their happiness is related to their personal life. In contrast, for people above 50 years old, daughter, husband, son,wife, are the top 4 significant words for them. If we see these four graphes together, we can find that people care more and more about family when aging. 
+```{r tf-idf, warning = FALSE,echo = FALSE}
+#generate age groups
+bag_of_words<-sample_n(bag_of_words,nrow(bag_of_words)/2)
+bag_of_words$age[bag_of_words$age==""] <- NA
+bag_of_words$age[bag_of_words$age=="prefer not to say"]<-NA
+bag_of_words<-na.omit(bag_of_words) #Remove NA and "prefer not to say" in column age
+bag_of_words$agegroups<-NA
+for (i in 1:length(bag_of_words$original_hm)){
+  bag_of_words$agegroups[i]<-ifelse(as.numeric(as.character(bag_of_words$age[i])) <20, "<20", ifelse(as.numeric(as.character(bag_of_words$age[i])) <35,"20-35",ifelse(as.numeric(as.character(bag_of_words$age[i]))<50,"35-50",">50")))
+}
+#Prepare datasets for bind_tf_idf function
+#generate count1
+bag_of_words$count1<-NA
+for (i in 1:length(bag_of_words$original_hm)){
+  bag_of_words$count1[i]<-length(which(bag_of_words$agegroups==bag_of_words$agegroups[i] &       
+                                         bag_of_words$word==bag_of_words$word[i]))
+}
+bag_of_words2<-bag_of_words[!duplicated(bag_of_words[c("word","agegroups")]),]
+bag_of_words3<-subset(bag_of_words2, select=c("agegroups", "word", "count1"))
+#Calculate tf-idf
+book_words <- bag_of_words3 %>% 
+  bind_tf_idf(word, agegroups, count1)
+df1<-head(arrange(book_words[which(book_words$agegroups=="<20"),],desc(tf_idf)),n=12)
+df2<-head(arrange(book_words[which(book_words$agegroups=="20-35"),],desc(tf_idf)),n=12)
+df3<-head(arrange(book_words[which(book_words$agegroups=="35-50"),],desc(tf_idf)),n=12)
+df4<-head(arrange(book_words[which(book_words$agegroups==">50"),],desc(tf_idf)),n=12)
+df<-data.frame("20_words"=df1$word,"20_if-tdf"=df1$tf_idf,"20.35_words"=df2$word,"20.35_if-tdf"=df2$tf_idf,"35.50_words"=df3$word,"35.50_if-tdf"=df3$tf_idf,"50_words"=df4$word,"50_if-tdf"=df4$tf_idf)
+df<-droplevels(df)
+plotly::plot_ly(x=df$X20_words,
+       y=df$X20_if.tdf,type="bar",color=~df$X20_words)%>%
+       layout(autosize = T,title="Age:<20")
+plotly::plot_ly(x=df$X20.35_words,
+       y=df$X20.35_if.tdf,type="bar",color=~df$X20.35_words)%>%
+       layout(autosize = T,title="Age:20-35")
+plotly::plot_ly(x=df$X35.50_words,
+       y=df$X35.50_if.tdf,type="bar",color=~df$X35.50_words)%>%
+       layout(autosize = T,title="Age:35-50")
+plotly::plot_ly(x=df$X50_words,
+       y=df$X50_if.tdf,type="bar",color=~df$X50_words)%>%
+       layout(autosize = T,title="Age:>50")
+#layout(autosize = F, width = 500, height = 500, margin = 5)
+```
+
+\newline
+\newline
+\newline
+
+###2. LDA
+In this part, we apply another method called [Latent Dirichlet allocation](https://en.wikipedia.org/wiki/Latent_Dirichlet_allocation)(LDA) for analysis. LDA is is a generative statistical model that allows sets of observations to be explained by unobserved groups that explain why some parts of the data are similar. Based on our previous analysis, we find that people's happiness are generally realted to two topics: their personal life and family memebrs. Thus,we set the number of topics equals to 2 for LDA analysis. The two graphes below show the top 10 terms that are most common within each topic. As we can see, graph 1(topic1) has a higher probabiliy of generating the word:family. It also has a higher probability of generating the word: son. Thus, topic1 may represent the topic about family. For graph 2(topic2),it has a higher probabily of generating the words: school, job,game, which means topic 2 may represnt the topic about personal life. Based on these findings,in next part we will explore the weight of each topic in different agegroups.
+```{r LDA_calculation, warning = FALSE,echo = FALSE}
+#Combine text from same age groups
+hm_data_LDA<-hm_data
+hm_data_LDA$age[hm_data_LDA$age==""] <- NA
+hm_data_LDA$age[hm_data_LDA$age=="prefer not to say"]<-NA
+hm_data_LDA<-na.omit(hm_data_LDA) #Remove NA and "prefer not to say" in column age
+hm_data_LDA$agegroups<-NA
+for (i in 1:length(hm_data_LDA$original_hm)){
+  hm_data_LDA$agegroups[i]<-ifelse(as.numeric(as.character(hm_data_LDA$age[i])) <20, "<20", ifelse(as.numeric(as.character(hm_data_LDA$age[i])) <35,"20-35",ifelse(as.numeric(as.character(hm_data_LDA$age[i]))<50,"35-50","50+")))
+}
+hm_data_LDA<-hm_data_LDA[complete.cases(hm_data_LDA[, "text"]), ]
+text_age<-hm_data_LDA %>% 
+  group_by(agegroups) %>% 
+  mutate(Combined_text = paste0(text, collapse = "")) 
+text_age<-text_age[!duplicated(text_age['Combined_text']),]
+#Calculate LDA
+texts <- Corpus(VectorSource(text_age$Combined_text))
+tdm <- DocumentTermMatrix(texts)
+rowTotals <- slam::row_sums(tdm)
+tdm <- tdm[rowTotals > 0, ]
+ap_lda<- LDA(tdm, k = 2, control = list(seed = 8)) 
+ap_topics <- tidy(ap_lda, matrix = "beta")
+#Draw graphes
+ap_top_terms <- ap_topics %>% 
+  group_by(topic) %>% 
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta) 
+ap_top_terms %>% 
+  mutate(term = reorder(term, beta)) %>% 
+  #filter(beta<0.005)%>%
+  ggplot(aes(term, beta, fill = factor(topic))) + geom_col(show.legend = FALSE) + facet_wrap(~ topic, scales = "free") +
+  coord_flip()
+```
+
+\newline
+\newline
+\newline
+
+The scatter plot below shows the weight of these two topics in each agegroup.As we can see, as the age increases, the points get closer and closer to topic1. This means the weight of family in people's happiness get increased when aging. Our findings in this part confirms the results from the tf-idf part.  
+
+```{r LDA_weight_calculation, warning = FALSE,echo = FALSE}
+topic1<-c("friend","family","finally","watched","surpeised","dinner","played","night","life","son")
+topic2<-c("friend","home","school","birthday","job","family","moment","game","life","house")
+num_35_1<-sum(str_count(text_age$Combined_text[1], pattern = topic1))
+num_35_2<-sum(str_count(text_age$Combined_text[1], pattern = topic2))
+num_60_1<-sum(str_count(text_age$Combined_text[2], pattern = topic1))
+num_60_2<-sum(str_count(text_age$Combined_text[2], pattern = topic2))
+num_50_1<-sum(str_count(text_age$Combined_text[3], pattern = topic1))
+num_50_2<-sum(str_count(text_age$Combined_text[3], pattern = topic2))
+num_20_1<-sum(str_count(text_age$Combined_text[4], pattern = topic1))
+num_20_2<-sum(str_count(text_age$Combined_text[4], pattern = topic2))
+Age_20=c(num_20_1/sum(num_20_1,num_20_2),num_20_2/sum(num_20_1,num_20_2))
+Age_20_35=c(num_35_1/sum(num_35_1,num_35_2),num_35_2/sum(num_35_1,num_35_2))
+Age_35_50=c(num_50_1/sum(num_50_1,num_50_2),num_50_2/sum(num_50_1,num_50_2))
+Age_50=c(num_60_1/sum(num_60_1,num_60_2),num_60_2/sum(num_60_1,num_60_2))
+weight<-data.frame(Age_20,Age_20_35,Age_35_50,Age_50)
+row.names(weight)<-c("topic.1","topic.2")
+weight1<-data.frame(t(as.matrix(weight)))
+row.names(weight1)<-c("Age:<20","Age:20-35","Age:35-50","Age:>50")
+#Draw graph
+a <- list(x = weight1$topic.1,y = weight1$topic.2,text = rownames(weight1),xref = "x",yref = "y",
+showarrow = TRUE,arrowhead = 1,ax = 30,ay = -30)
+picture<-list(list(source =  "https://github.com/TZstatsADS/Fall2018-Proj1-Mays3200/blob/master/figs/picture3.PNG?raw=true",xref = "x",yref = "y",x = 1,y = 3,sizex = 2,sizey = 2,sizing = "stretch",opacity = 0.4,layer = "below"))
+plot_ly(weight1, x = ~topic.1, y = ~topic.2,marker=list(size=10,color = ~topic.2,width=2)) %>%
+  add_markers() %>%
+  layout(annotations = a,images = picture)
+```
+
+Based on the website senior.com, the following reasons can be explained why people care more on family when aging. 1. Retirement is a major disruption to seniors' social lives and it is particularly challenging for older adults to make friends. 2.Strong family relationships give seniors a stable and much-needed support system as age makes them increasingly vulnerable.
+
+
+\newline
+\newline
+\newline
+
+
+##Summary
+By analyzing the corpus of 100,000 crowd-sourced from Amazon, we get the following results in our analysis. 1. People generally write longer sentences as they get older. 2.The following things are the main scources of happiness for people if we do not distinguish them by age:Friend, Family ,Birthday, Game, School, Buy, love, talk, completed and movie. 3. As people get older, they focus more on family than other things.Things related to family becomes to their major sources of happinesss.
+
+![](C:/Users/maysh/Desktop/picture2.jpg)
+
+
+
+
+\newline
+\newline
+\newline
+
+
+##Reference
+1. Silge, J., & Robinson, D. (2017). Text mining with R: A tidy approach. Beijing: OReilly.
+2.The 12 Stages of Life. (n.d.). Retrieved from http://www.institute4learning.com/resources/articles/the-12-stages-of-life/
+3. Latent Dirichlet allocation. (2018, September 02). Retrieved from https://en.wikipedia.org/wiki/Latent_Dirichlet_allocation
+4.Tf-idf. (2018, September 12). Retrieved from https://en.wikipedia.org/wiki/Tf-idf
+5.Harvard Health Publishing. (n.d.). How memory and thinking ability change with age - Harvard Health. Retrieved from https://www.health.harvard.edu/mind-and-mood/how-memory-and-thinking-ability-change-with-age
