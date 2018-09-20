@@ -2,7 +2,7 @@
 ## Fall 2018
 ## Project 1: What made you happy today?
 
-![image](figs/title.jpeg)
+![image](figs/picture1.jpg)
 
 ### [Project Description](doc/)
 This is the first and only *individual* (as opposed to *team*) this semester. 
